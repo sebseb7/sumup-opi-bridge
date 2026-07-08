@@ -2,6 +2,8 @@ import http from 'node:http';
 import chalk from 'chalk';
 import { getTransaction } from './transactions.js';
 
+const TERMINAL_STATUSES = new Set(['SUCCESSFUL', 'FAILED', 'CANCELLED', 'REFUNDED']);
+
 const pendingWebhooks = new Map();
 let globalWebhookServer = null;
 
@@ -18,10 +20,21 @@ export function startWebhookServer() {
       let data;
       try { data = JSON.parse(body); } catch { data = { raw: body }; }
       
+      console.log(`\n--- Incoming Webhook ---`);
+      console.dir(data, { depth: null, colors: true });
+      console.log(`------------------------\n`);
+
       const ctid = data?.payload?.client_transaction_id;
+      const status = data?.payload?.status || data?.status || '';
+      
       if (ctid && pendingWebhooks.has(ctid)) {
-        const resolve = pendingWebhooks.get(ctid);
-        resolve({ source: 'webhook', data });
+        // Only resolve if we know it's a terminal status (or if status is missing)
+        if (!status || TERMINAL_STATUSES.has(status.toUpperCase())) {
+          const resolve = pendingWebhooks.get(ctid);
+          resolve({ source: 'webhook', data });
+        } else {
+          console.log(`  ${chalk.gray(new Date().toISOString())}  ${chalk.magenta('webhook')}  →  ignored non-terminal status: ${status}`);
+        }
       }
     });
   });
@@ -64,7 +77,6 @@ export function waitForWebhook(clientTxId, elapsed, signal, timeoutMs = 5 * 60 *
  * Poll the Transactions API every 10 seconds until a terminal status is reached.
  */
 export function pollTransaction(clientTransactionId, onAttempt, signal, timeoutMs = 5 * 60 * 1000) {
-  const TERMINAL = new Set(['SUCCESSFUL', 'FAILED', 'CANCELLED', 'REFUNDED']);
   let forcePoll;
   const promise = new Promise((resolve, reject) => {
     let interval;
@@ -78,7 +90,7 @@ export function pollTransaction(clientTransactionId, onAttempt, signal, timeoutM
         const status = String(tx?.status ?? 'unknown');
         if (onAttempt) onAttempt(attempt, status);
         
-        if (TERMINAL.has(status.toUpperCase())) {
+        if (TERMINAL_STATUSES.has(status.toUpperCase())) {
           clearInterval(interval);
           clearTimeout(timer);
           resolve({ source: 'poll', data: tx });

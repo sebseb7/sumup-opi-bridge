@@ -157,7 +157,7 @@ ${lines}
 
 export function buildReceiptText({ stan, approvalCode, amount, currency, cardCircuit, cardPan, requestId }) {
   return [
-    `Transaktionsnummer: ${stan}`,
+    `Transaktionsnummer: ${stan}-${requestId}`,
     `Karte: ${cardCircuit}`,
     `PAN: ${cardPan}`,
   ].join('\n');

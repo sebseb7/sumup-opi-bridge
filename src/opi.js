@@ -132,7 +132,7 @@ async function handleMessage(socket, xml, remote) {
       if (req.receiptNumber) descParts.push(`Receipt: ${req.receiptNumber}`);
       if (req.transactionId) descParts.push(`TX: ${req.transactionId}`);
       if (req.cashierId) descParts.push(`Cashier: ${req.cashierId}`);
-      if (descParts.length === 0) descParts.push(`POS-ReqID-${req.requestId}`);
+      if (descParts.length === 0) descParts.push(`jtl-id ${req.requestId}`);
       const checkoutDesc = descParts.join(' | ');
 
       const checkoutRes = await createCheckout(readerId, {
