@@ -1,0 +1,33 @@
+name: Run Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: node:22-alpine
+
+    steps:
+      - name: Install Git
+        run: apk add --no-cache git
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Cache node modules
+        id: cache-npm
+        uses: actions/cache@v6
+        with:
+          path: node_modules
+          key: node-modules-${{ hashFiles('**/package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-npm.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
