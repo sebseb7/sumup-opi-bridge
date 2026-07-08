@@ -1,7 +1,7 @@
 import net from 'node:net';
 import { encodeMessage, createFrameReader, deviceRequest, buildReceiptText } from './opi-protocol.js';
 
-const DEVICE_TIMEOUT_MS = 5000;
+const DEVICE_TIMEOUT_MS = 1000;
 
 export function normalizeHost(value) {
   if (!value) return null;
@@ -67,8 +67,8 @@ export async function sendPaymentDeviceRequests({ posHost, posPort, workstationI
     approvalCode,
     amount: payment.amount,
     currency: payment.currency,
-    cardCircuit: 'VISA',
-    cardPan: '************4242',
+    cardCircuit: payment.cardCircuit || 'UNKNOWN',
+    cardPan: payment.cardPan || '************XXXX',
     requestId: baseId,
   });
 

@@ -86,11 +86,11 @@ export function cardServiceResponse({
   message = '',
   stan,
   approvalCode,
+  cardPan = '************XXXX',
+  cardCircuit = 'UNKNOWN',
 }) {
   const txStan = stan || String(Date.now()).slice(-6);
   const approval = approvalCode || String(Math.floor(100000 + Math.random() * 900000));
-  const cardPan = '************4242';
-  const cardCircuit = 'VISA';
 
   if (overallResult === 'Success') {
     return `<?xml version="1.0" encoding="UTF-8" standalone="no"?>

@@ -14,7 +14,7 @@ import { sendDeviceOutput, normalizeHost, sendPaymentDeviceRequests } from './li
 import { startWebhookServer, waitForPaymentResult } from './lib/waiter.js';
 
 const OPI_PORT = 4102;
-const DEVICE_PORT = parseInt(process.env.OPI_PORT_DEVICE || '4100', 10);
+const DEVICE_PORT = process.env.OPI_PORT_DEVICE ? parseInt(process.env.OPI_PORT_DEVICE, 10) : null;
 
 let activeReaderId = process.env.SUMUP_READER_ID;
 let webhookUrl = process.env.WEBHOOK_URL;
@@ -122,17 +122,17 @@ async function handleMessage(socket, xml, remote) {
       if (isNaN(amountValue)) {
         throw new Error(`Invalid amount: ${req.amount}`);
       }
-      
+
       const minorUnit = 2;
       const value = Math.round(amountValue * Math.pow(10, minorUnit));
-      
+
       console.log(`[OPI] Starting Checkout on reader ${readerId} for ${req.amount} ${req.currency}`);
 
       let descParts = [];
       if (req.receiptNumber) descParts.push(`Receipt: ${req.receiptNumber}`);
       if (req.transactionId) descParts.push(`TX: ${req.transactionId}`);
       if (req.cashierId) descParts.push(`Cashier: ${req.cashierId}`);
-      if (descParts.length === 0) descParts.push(`jtl-id ${req.requestId}`);
+      if (descParts.length === 0) descParts.push(`JTL receipt#${req.requestId}`);
       const checkoutDesc = descParts.join(' | ');
 
       const checkoutRes = await createCheckout(readerId, {
@@ -144,8 +144,10 @@ async function handleMessage(socket, xml, remote) {
       });
 
       const clientTxId = checkoutRes.client_transaction_id;
-      
-      if (posHost) {
+
+      let devicePortAlive = false;
+
+      if (posHost && DEVICE_PORT) {
         try {
           await sendDeviceOutput({
             posHost,
@@ -155,28 +157,30 @@ async function handleMessage(socket, xml, remote) {
             target: 'CashierDisplay',
             requestId: `${req.requestId}-d0`,
             sequenceId: '0',
-            text: `${batteryPrefix}Verbinde mit Kartenleser...\nTX: ${clientTxId.split('-')[0]}`,
+            text: `${batteryPrefix}\nVerbunden mit Kartenleser.\nTX: ${clientTxId.split('-')[0]}`,
           });
           console.log(`[OPI] Display updated on POS (${posHost}) with TX: ${clientTxId}`);
+          devicePortAlive = true;
         } catch (e) {
           console.log(`[OPI] Failed to update POS display: ${e.message}`);
+          devicePortAlive = false; // Port is down, do not try again for this tx
         }
       }
 
-      activePayments.set(req.requestId, { readerId, clientTxId });
+      activePayments.set(req.requestId, { readerId, clientTxId, devicePortAlive });
 
       try {
         const { winner } = await waitForPaymentResult(
-          clientTxId, 
-          webhookUrl, 
+          clientTxId,
+          webhookUrl,
           () => new Date().toISOString(), // dummy elapsed function
           (attempt, status) => {
             console.log(`[OPI] Poll attempt ${attempt}: ${status}`);
             const remaining = 45 - (attempt * 5); // Attempt 1 -> 40, Attempt 9 -> 0
             if (remaining <= 0) {
               console.log(`[OPI] Countdown reached 0. Aborting checkout on reader ${readerId}...`);
-              terminateCheckout(readerId).catch(() => {});
-              if (posHost) {
+              terminateCheckout(readerId).catch(() => { });
+              if (posHost && devicePortAlive) {
                 sendDeviceOutput({
                   posHost,
                   posPort: DEVICE_PORT,
@@ -186,9 +190,9 @@ async function handleMessage(socket, xml, remote) {
                   requestId: `${req.requestId}-d0`,
                   sequenceId: '0',
                   text: `${batteryPrefix}Abbruch...`,
-                }).catch(() => {});
+                }).catch(() => { });
               }
-            } else if (posHost) {
+            } else if (posHost && devicePortAlive) {
               sendDeviceOutput({
                 posHost,
                 posPort: DEVICE_PORT,
@@ -198,7 +202,7 @@ async function handleMessage(socket, xml, remote) {
                 requestId: `${req.requestId}-d0`,
                 sequenceId: '0',
                 text: `${batteryPrefix}Warte ${remaining} ...`,
-              }).catch(() => {});
+              }).catch(() => { });
             }
           }
         );
@@ -208,11 +212,18 @@ async function handleMessage(socket, xml, remote) {
         let message = '';
         let stan = winner.data.transaction_code;
         let approvalCode = winner.data.auth_code;
-        
+
+        let cardPan = '************XXXX';
+        let cardCircuit = 'UNKNOWN';
+        if (winner.data.card) {
+          if (winner.data.card.last_4_digits) cardPan = `************${winner.data.card.last_4_digits}`;
+          if (winner.data.card.type) cardCircuit = winner.data.card.type.toUpperCase();
+        }
+
         if (status === 'SUCCESSFUL') {
           overallResult = 'Success';
-          
-          if (posHost) {
+
+          if (posHost && devicePortAlive) {
             try {
               const deviceRes = await sendPaymentDeviceRequests({
                 posHost,
@@ -224,6 +235,8 @@ async function handleMessage(socket, xml, remote) {
                   currency: req.currency,
                   stan,
                   approvalCode,
+                  cardPan,
+                  cardCircuit,
                 },
               });
               console.log(`[OPI] POS receipt sent. (${deviceRes.results.map(r => r.ok ? 'OK' : 'ERR').join(', ')})`);
@@ -249,7 +262,13 @@ async function handleMessage(socket, xml, remote) {
           message,
           stan,
           approvalCode,
+          cardPan,
+          cardCircuit,
         });
+
+        console.log(`\n--- Outgoing OPI Response ---`);
+        console.log(response);
+        console.log(`-----------------------------\n`);
 
         socket.write(encodeMessage(response));
         console.log(`[OPI] Payment ${status} -> ${overallResult}`);
@@ -287,7 +306,7 @@ async function handleMessage(socket, xml, remote) {
         requestId: `${req.requestId}-err`,
         sequenceId: '0',
         text: batteryPrefix + displayText,
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     const errResp = cardServiceResponse({

@@ -28,13 +28,22 @@ export function startWebhookServer() {
       const status = data?.payload?.status || data?.status || '';
       
       if (ctid && pendingWebhooks.has(ctid)) {
-        // Only resolve if we know it's a terminal status (or if status is missing)
-        if (!status || TERMINAL_STATUSES.has(status.toUpperCase())) {
-          const resolve = pendingWebhooks.get(ctid);
-          resolve({ source: 'webhook', data });
-        } else {
-          console.log(`  ${chalk.gray(new Date().toISOString())}  ${chalk.magenta('webhook')}  →  ignored non-terminal status: ${status}`);
-        }
+        // Fetch the full transaction to see its actual status
+        getTransaction({ clientTransactionId: ctid }).then(tx => {
+          const txStatus = String(tx?.status ?? status).toUpperCase();
+          if (TERMINAL_STATUSES.has(txStatus)) {
+            const resolve = pendingWebhooks.get(ctid);
+            if (resolve) resolve({ source: 'webhook', data: tx });
+          } else {
+            console.log(`  ${chalk.gray(new Date().toISOString())}  ${chalk.magenta('webhook')}  →  ignored non-terminal status: ${txStatus}`);
+          }
+        }).catch(err => {
+          // Fallback if TX lookup fails: use the payload status if it's terminal
+          if (status && TERMINAL_STATUSES.has(status.toUpperCase())) {
+            const resolve = pendingWebhooks.get(ctid);
+            if (resolve) resolve({ source: 'webhook', data });
+          }
+        });
       }
     });
   });
@@ -142,18 +151,7 @@ export async function waitForPaymentResult(clientTxId, webhookUrl, elapsed, onPo
     let winner = await Promise.race(raceable);
     abortController.abort(); // Cancel the loser
 
-    // Webhook arrived first — enrich with full TX details from the API
-    if (winner.source === 'webhook') {
-      const webhookPayload = winner.data;
-      const ctid = webhookPayload?.payload?.client_transaction_id ?? clientTxId;
-      try {
-        const tx = await getTransaction({ clientTransactionId: ctid });
-        winner = { source: 'webhook', data: tx }; // preserve original source for the UI
-      } catch {
-        // TX lookup failed — fall back to webhook envelope display
-      }
-    }
-
+    // Webhook already enriched itself and verified the status is terminal
     return { winner, forcePoll: pollPromise.force, abortController };
   } catch (err) {
     abortController.abort();
