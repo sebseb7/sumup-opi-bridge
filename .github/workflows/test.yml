@@ -12,8 +12,8 @@ jobs:
     container: node:22-alpine
 
     steps:
-      - name: Install Git
-        run: apk add --no-cache git
+      - name: Install Git and Tar
+        run: apk add --no-cache git tar
 
       - name: Checkout repository
         uses: actions/checkout@v6
