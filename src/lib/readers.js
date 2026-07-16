@@ -3,7 +3,9 @@
  * Reusable helpers wrapping client.readers.* SDK methods.
  * All functions surface structured errors from the API problem+json format.
  */
+import crypto from 'node:crypto';
 import { client, merchantCode, affiliateDefaults } from './client.js';
+import { logEvent } from './event-log.js';
 
 // ---------------------------------------------------------------------------
 // Error handling
@@ -132,7 +134,18 @@ export async function createCheckout(readerId, opts) {
   const result = await call(() =>
     client.readers.createCheckout(merchantCode, readerId, body),
   );
-  return result.data ?? result;
+  const data = result.data ?? result;
+  logEvent('payment', {
+    readerId,
+    value,
+    currency,
+    minorUnit,
+    description,
+    foreignTransactionId,
+    clientTransactionId: data?.client_transaction_id,
+    data,
+  });
+  return data;
 }
 
 /**

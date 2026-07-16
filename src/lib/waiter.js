@@ -1,6 +1,7 @@
 import http from 'node:http';
 import chalk from 'chalk';
 import { getTransaction } from './transactions.js';
+import { logEvent } from './event-log.js';
 
 const TERMINAL_STATUSES = new Set(['SUCCESSFUL', 'FAILED', 'CANCELLED', 'REFUNDED']);
 
@@ -23,6 +24,7 @@ export function startWebhookServer() {
       console.log(`\n--- Incoming Webhook ---`);
       console.dir(data, { depth: null, colors: true });
       console.log(`------------------------\n`);
+      logEvent('webhook', { data });
 
       const ctid = data?.payload?.client_transaction_id;
       const status = data?.payload?.status || data?.status || '';
@@ -98,6 +100,7 @@ export function pollTransaction(clientTransactionId, onAttempt, signal, timeoutM
         if (aborted) return; // Prevent logging if aborted while the request was in-flight
         
         const status = String(tx?.status ?? 'unknown');
+        logEvent('poll', { clientTransactionId, attempt, status, data: tx });
         if (onAttempt) onAttempt(attempt, status);
         
         if (TERMINAL_STATUSES.has(status.toUpperCase())) {
@@ -107,6 +110,7 @@ export function pollTransaction(clientTransactionId, onAttempt, signal, timeoutM
         }
       } catch (err) {
         if (aborted) return; // Prevent error logging if aborted in-flight
+        logEvent('poll', { clientTransactionId, attempt, status: 'error', error: err.message });
         if (onAttempt) onAttempt(attempt, `error: ${err.message}`);
       }
     };

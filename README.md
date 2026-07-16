@@ -36,6 +36,7 @@ npm install
 | `SUMUP_APP_ID` | ✅ | Application ID from the Affiliate Keys page (reverse-domain string) |
 | `WEBHOOK_PORT` | ☑️ | Local HTTP port for the embedded webhook listener (default: `58180`) |
 | `WEBHOOK_URL` | ☑️ | Public HTTPS URL SumUp POSTs transaction results to (see below) |
+| `EVENT_LOG` | ☑️ | Path for the JSONL event logfile (default: `./sumup-bridge.log`) — payments, webhooks, poll results |
 
 ---
 
